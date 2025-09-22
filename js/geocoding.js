@@ -65,7 +65,13 @@ async function geocodeAddress(address) {
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
-            // fallback: primer resultado
+            // Si no hay altura, buscar coincidencia por calle y localidad
+            for (const d of data) {
+                if (d && d.address && d.address.road && d.address.city) {
+                    return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
+                }
+            }
+            // fallback: primer resultado aunque no tenga altura
             return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name };
         }
         return null;
