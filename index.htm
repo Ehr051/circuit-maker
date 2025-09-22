@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Optimizador de Rutas Escolares</title>
     <link rel="stylesheet" href="styles.css">
     <!-- Leaflet CSS -->
@@ -24,8 +24,8 @@
                 <div class="provider-info">
                     <strong>🗺️ Servicios Gratuitos:</strong><br>
                     • Mapas: OpenStreetMap<br>
-                    • Geocodificación: Nominatim<br>
-                    • Sin límites de uso
+                    • Geocodificación: Nominatim (opcional)<br>
+                    • Ruteo por calles: OpenRouteService / OSRM (requiere API key o servidor)
                 </div>
 
                 <!-- Selector de Circuitos -->
@@ -54,6 +54,7 @@
                             <button class="btn btn-secondary" onclick="loadFromText()">📄 TXT/CSV</button>
                             <button class="btn btn-secondary" onclick="loadFromCSV()">📊 CSV Coordenadas</button>
                             <button class="btn btn-secondary" onclick="loadFromKML()">🗺️ KML/KMZ</button>
+                            <button class="btn btn-secondary" onclick="loadFromXLSX()">📑 XLSX</button>
                         </div>
                     </div>
                     
@@ -61,12 +62,13 @@
                     <input type="file" id="textFileInput" accept=".txt,.csv" style="display: none;">
                     <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
                     <input type="file" id="kmlFileInput" accept=".kml,.kmz" style="display: none;">
+                    <input type="file" id="xlsxFileInput" accept=".xlsx" style="display: none;">
                 </div>
 
                 <!-- Lista de Direcciones -->
                 <div class="section">
                     <h3>📋 Direcciones del Circuito Actual</h3>
-                    <div id="addressesList"></div>
+                    <div id="addressesList" class="addresses-list"></div>
                     <button class="btn btn-secondary" onclick="clearAddresses()">🗑️ Limpiar Todo</button>
                 </div>
 
@@ -84,11 +86,15 @@
                     <div class="input-group">
                         <label>Tipo de Transporte:</label>
                         <select id="transportSelect">
-                            <option value="driving-car">🚗 Automóvil</option>
-                            <option value="driving-hgv">🚛 Vehículo Pesado</option>
-                            <option value="cycling-regular">🚲 Bicicleta</option>
-                            <option value="foot-walking">🚶 Caminando</option>
+                            <option value="driving-car">🚗 driving-car</option>
+                            <option value="driving-hgv">🚛 driving-hgv</option>
+                            <option value="cycling-regular">🚲 cycling-regular</option>
+                            <option value="foot-walking">🚶 foot-walking</option>
                         </select>
+                    </div>
+                    <div style="margin-top:8px">
+                        <label>OpenRouteService API key (opcional para ruteo real):</label>
+                        <input type="text" id="orsApiKey" placeholder="Pegar API key si la tenés (recomendado)">
                     </div>
                     <button class="btn" onclick="optimizeRoute()">🚀 Optimizar Ruta</button>
                 </div>
@@ -101,6 +107,7 @@
                         <button class="btn btn-success" onclick="exportToJSON()">📄 JSON</button>
                         <button class="btn btn-secondary" onclick="exportToCSV()">📋 CSV</button>
                         <button class="btn btn-secondary" onclick="exportToKML()">🗺️ KML</button>
+                        <button class="btn btn-secondary" onclick="exportToKMZ()">📦 KMZ</button>
                     </div>
                 </div>
 
@@ -109,7 +116,7 @@
                     <h3>📊 Resultados</h3>
                     <div class="error" id="errorMessage"></div>
                     <div class="success" id="successMessage"></div>
-                    <div class="loading" id="loading">
+                    <div class="loading" id="loading" style="display:none">
                         <div class="spinner"></div>
                         Calculando mejor ruta...
                     </div>
@@ -118,7 +125,7 @@
             </div>
 
             <div class="map-container">
-                <div id="map"></div>
+                <div id="map" style="height: 90vh;"></div>
             </div>
         </div>
     </div>
@@ -126,7 +133,8 @@
     <!-- Librerías externas -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
     <!-- JavaScript modular -->
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>

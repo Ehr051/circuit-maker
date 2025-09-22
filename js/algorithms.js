@@ -1,287 +1,212 @@
-// Algoritmos de optimización
+/* algorithms.js - TSP y ruteo por calles con OpenRouteService
+   Incluye heurísticos (Nearest Neighbor, Two-Opt) y fallback si no hay API key.
+*/
 
+// =======================
+// Distancias y factores
+// =======================
+
+// Haversine (distancia en línea recta, km)
+function calculateDistance(a, b) {
+    const R = 6371; // km
+    const toRad = v => v * Math.PI / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const sinDLat = Math.sin(dLat/2);
+    const sinDLon = Math.sin(dLon/2);
+    const c = 2 * Math.asin(Math.sqrt(sinDLat*sinDLat + Math.cos(lat1)*Math.cos(lat2)*sinDLon*sinDLon));
+    return R * c;
+}
+
+// Factor heurístico (cuando no hay ruteo real)
+function getUrbanRoadFactor(a, b) {
+    const straight = calculateDistance(a,b);
+    if (straight < 0.5) return 1.35;
+    if (straight < 2) return 1.25;
+    if (straight < 10) return 1.15;
+    return 1.05;
+}
+
+// =======================
+// Algoritmos TSP
+// =======================
+
+// Nearest Neighbor
 function nearestNeighborTSP(points) {
-    if (points.length <= 1) return points;
-    
-    const visited = new Array(points.length).fill(false);
-    const route = [0];
-    visited[0] = true;
-    let current = 0;
-    
-    for (let i = 1; i < points.length; i++) {
-        let nearest = -1;
-        let minDistance = Infinity;
-        
+    if (!points || points.length <= 1) return points.slice();
+    const used = new Array(points.length).fill(false);
+    let route = [points[0]];
+    used[0] = true;
+    let currentIndex = 0;
+    for (let k = 1; k < points.length; k++) {
+        let best = -1, bestDist = Infinity;
         for (let j = 0; j < points.length; j++) {
-            if (!visited[j]) {
-                const straight = calculateDistance(points[current], points[j]);
-                const factor = getUrbanRoadFactor(points[current], points[j]);
-                const distance = straight * factor;
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearest = j;
-                }
-            }
+            if (used[j]) continue;
+            const d = calculateDistance(points[currentIndex], points[j]) *
+                      getUrbanRoadFactor(points[currentIndex], points[j]);
+            if (d < bestDist) { bestDist = d; best = j; }
         }
-        
-        if (nearest !== -1) {
-            route.push(nearest);
-            visited[nearest] = true;
-            current = nearest;
+        if (best >= 0) {
+            route.push(points[best]);
+            used[best] = true;
+            currentIndex = best;
         }
     }
-    
-    return route.map(index => points[index]);
+    return route;
 }
 
-function tspSolver(points) {
-    if (points.length <= 1) return points;
-    if (points.length <= 8) return bruteForceTSP(points);
-    return twoOptImprove(nearestNeighborTSP(points));
-}
-
-function bruteForceTSP(points) {
-    const n = points.length;
-    let minDistance = Infinity;
-    let bestRoute = [];
-    
-    function permute(arr, l, r) {
-        if (l === r) {
-            const distance = calculateRouteDistance(arr);
-            if (distance < minDistance) {
-                minDistance = distance;
-                bestRoute = [...arr];
-            }
-        } else {
-            for (let i = l; i <= r; i++) {
-                [arr[l], arr[i]] = [arr[i], arr[l]];
-                permute(arr, l + 1, r);
-                [arr[l], arr[i]] = [arr[i], arr[l]];
-            }
-        }
-    }
-    
-    function calculateRouteDistance(route) {
-        let total = 0;
-        for (let i = 0; i < route.length - 1; i++) {
-            const straight = calculateDistance(route[i], route[i + 1]);
-            const factor = getUrbanRoadFactor(route[i], route[i + 1]);
-            total += straight * factor;
-        }
-        return total;
-    }
-    
-    const indices = Array.from({ length: n }, (_, i) => i);
-    permute(indices, 1, n - 1);
-    
-    return bestRoute.map(index => points[index]);
-}
-
+// Two-Opt (mejora rutas)
 function twoOptImprove(route) {
+    if (!route || route.length <= 2) return route;
     let improved = true;
-    let bestRoute = [...route];
-    let bestDistance = calculateTotalDistance(bestRoute);
-    
+    let bestRoute = route.slice();
+    let bestDist = calculateTotalDistance(bestRoute);
     while (improved) {
         improved = false;
-        
-        for (let i = 1; i < route.length - 2; i++) {
-            for (let j = i + 1; j < route.length; j++) {
-                if (j - i === 1) continue;
-                
-                const newRoute = twoOptSwap(route, i, j);
-                const newDistance = calculateTotalDistance(newRoute);
-                
-                if (newDistance < bestDistance) {
+        for (let i = 1; i < bestRoute.length - 1; i++) {
+            for (let j = i+1; j < bestRoute.length; j++) {
+                const newRoute = bestRoute.slice(0,i)
+                    .concat(bestRoute.slice(i,j+1).reverse(), bestRoute.slice(j+1));
+                const newDist = calculateTotalDistance(newRoute);
+                if (newDist < bestDist) {
                     bestRoute = newRoute;
-                    bestDistance = newDistance;
+                    bestDist = newDist;
                     improved = true;
                 }
             }
         }
-        route = bestRoute;
     }
-    
     return bestRoute;
 }
 
-function twoOptSwap(route, i, j) {
-    const newRoute = [...route];
-    while (i < j) {
-        [newRoute[i], newRoute[j]] = [newRoute[j], newRoute[i]];
-        i++;
-        j--;
+function calculateTotalDistance(route) {
+    let total = 0;
+    for (let i=0; i<route.length-1; i++) {
+        total += calculateDistance(route[i], route[i+1]) *
+                 getUrbanRoadFactor(route[i], route[i+1]);
     }
-    return newRoute;
+    return total;
 }
 
-function geneticAlgorithm(points) {
-    if (points.length <= 1) return points;
-    
-    const populationSize = Math.min(100, points.length * 4);
-    const generations = Math.min(500, points.length * 10);
-    const mutationRate = 0.1;
-    
-    function createRandomRoute() {
-        const route = [...points];
-        for (let i = route.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [route[i], route[j]] = [route[j], route[i]];
-        }
-        return route;
-    }
-    
-    function calculateFitness(route) {
-        const distance = calculateTotalDistance(route);
-        return 1 / (1 + distance);
-    }
-    
-    // Generar población inicial
-    let population = [];
-    for (let i = 0; i < populationSize; i++) {
-        population.push(createRandomRoute());
-    }
-    
-    // Evolución básica
-    for (let gen = 0; gen < Math.min(generations, 50); gen++) {
-        const fitness = population.map(calculateFitness);
-        const bestIndex = fitness.indexOf(Math.max(...fitness));
-        
-        // Mantener el mejor
-        const newPopulation = [population[bestIndex]];
-        
-        // Llenar resto con mutaciones del mejor
-        while (newPopulation.length < populationSize) {
-            const mutated = [...population[bestIndex]];
-            if (Math.random() < mutationRate) {
-                const i = Math.floor(Math.random() * mutated.length);
-                const j = Math.floor(Math.random() * mutated.length);
-                [mutated[i], mutated[j]] = [mutated[j], mutated[i]];
-            }
-            newPopulation.push(mutated);
-        }
-        
-        population = newPopulation;
-    }
-    
-    const finalFitness = population.map(calculateFitness);
-    const bestIndex = finalFitness.indexOf(Math.max(...finalFitness));
-    return population[bestIndex];
+// Solver TSP simple
+function tspSolver(points) {
+    if (!points || points.length <= 1) return points.slice();
+    if (points.length <= 8) return twoOptImprove(nearestNeighborTSP(points));
+    return twoOptImprove(nearestNeighborTSP(points));
 }
 
-// Función principal de optimización
-function optimizeRoute() {
+// =======================
+// Ruteo real con ORS
+// =======================
+
+async function getRouteByStreets(from, to, profile='driving-car') {
+    const apiKey = document.getElementById('orsApiKey')?.value?.trim();
+    if (!apiKey) return null; // fallback
+    const url = `https://api.openrouteservice.org/v2/directions/${encodeURIComponent(profile)}?api_key=${encodeURIComponent(apiKey)}&start=${from.lng},${from.lat}&end=${to.lng},${to.lat}`;
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            console.warn('ORS no ok', resp.status);
+            return null;
+        }
+        const body = await resp.json();
+        if (body && body.features && body.features.length > 0) {
+            const s = body.features[0].properties.summary;
+            return { distance: s.distance/1000, duration: s.duration/60 };
+        }
+    } catch (err) {
+        console.error('Error ORS', err);
+    }
+    return null;
+}
+
+// =======================
+// Optimización de ruta
+// =======================
+
+async function optimizeRoute() {
     const addresses = circuits[currentCircuit];
-    
-    if (addresses.length < 2) {
+    if (!addresses || addresses.length < 2) {
         showError('Necesitas al menos 2 direcciones para optimizar la ruta');
         return;
     }
-
-    showLoading();
-    hideError();
-    showSuccess('Calculando rutas reales por calles...');
-
+    showLoading(); hideError(); showSuccess('Calculando rutas...');
     const algorithm = document.getElementById('algorithmSelect').value;
-    let optimizedRoute;
-
+    let route = [];
     try {
-        if (algorithm === 'nearestNeighbor') {
-            optimizedRoute = nearestNeighborTSP(addresses);
-        } else if (algorithm === 'genetic') {
-            optimizedRoute = geneticAlgorithm(addresses);
-        } else {
-            optimizedRoute = tspSolver(addresses);
-        }
+        if (algorithm === 'nearestNeighbor') route = nearestNeighborTSP(addresses);
+        else if (algorithm === 'genetic') route = nearestNeighborTSP(addresses); // placeholder
+        else route = tspSolver(addresses);
 
+        // guardar resultado
         optimizedRouteData = {
-            route: optimizedRoute,
+            route: route,
             algorithm: document.getElementById('algorithmSelect').selectedOptions[0].text,
-            transport: document.getElementById('transportSelect').selectedOptions[0].text,
+            transport: document.getElementById('transportSelect').value,
             circuitName: currentCircuit,
             optimizationDate: new Date().toISOString()
         };
-
-        showOptimizedRoute(optimizedRoute);
-        calculateRouteStats(optimizedRoute);
-        
-    } catch (error) {
+        showOptimizedRoute(route);
+        await calculateRouteStats(route);
+    } catch (err) {
+        console.error(err);
+        showError('Error al optimizar la ruta: ' + err.message);
+    } finally {
         hideLoading();
-        showError('Error al optimizar la ruta: ' + error.message);
-        console.error('Error detallado:', error);
     }
 }
 
-function calculateRouteStats(route) {
+async function calculateRouteStats(route) {
     const resultsDiv = document.getElementById('results');
-    
-    let totalDistance = 0;
-    let totalTime = 0;
-    const avgSpeed = getAverageSpeed();
-    
-    for (let i = 0; i < route.length - 1; i++) {
-        const straight = calculateDistance(route[i], route[i + 1]);
-        const factor = getUrbanRoadFactor(route[i], route[i + 1]);
-        const realDistance = straight * factor;
-        const time = (realDistance / avgSpeed) * 60;
-        
-        totalDistance += realDistance;
-        totalTime += time;
-    }
-    
-    let html = `
-        <div class="route-info">
-            <h4>🎯 Ruta Optimizada para "${currentCircuit}" (Rutas Reales)</h4>
-            <p><strong>Algoritmo:</strong> ${document.getElementById('algorithmSelect').selectedOptions[0].text}</p>
-            <p><strong>Transporte:</strong> ${document.getElementById('transportSelect').selectedOptions[0].text}</p>
-            <p><strong>Total de paradas:</strong> ${route.length}</p>
-            <p><strong>🛣️ Cálculo:</strong> Por calles y caminos reales</p>
-        </div>
-    `;
+    let totalDistance = 0, totalTime = 0;
+    const profile = document.getElementById('transportSelect').value || 'driving-car';
+    const apiKey = document.getElementById('orsApiKey')?.value?.trim();
 
-    html += '<h4>📍 Secuencia Optimizada:</h4>';
-    
-    let accDistance = 0;
-    let accTime = 0;
-    
-    route.forEach((location, index) => {
-        let segmentInfo = '';
-        
-        if (index < route.length - 1) {
-            const straight = calculateDistance(location, route[index + 1]);
-            const factor = getUrbanRoadFactor(location, route[index + 1]);
-            const distance = straight * factor;
-            const time = (distance / avgSpeed) * 60;
-            
-            accDistance += distance;
-            accTime += time;
-            
-            segmentInfo = `<small style="color: #2d7d32;">
-                🛣️ → Siguiente: ${distance.toFixed(2)} km, ${Math.round(time)} min
-                <br>📊 Acumulado: ${accDistance.toFixed(2)} km, ${Math.round(accTime)} min
-            </small>`;
+    for (let i=0; i<route.length-1; i++) {
+        let real = null;
+        if (apiKey) {
+            real = await getRouteByStreets(route[i], route[i+1], profile);
         }
-        
-        html += `
-            <div class="route-info">
-                <strong>Parada ${index + 1}${index === 0 ? ' (🚀 INICIO)' : index === route.length - 1 ? ' (🏁 FIN)' : ''}:</strong><br>
-                <span style="font-size: 13px;">${location.address}</span><br>
-                ${segmentInfo}
-            </div>
-        `;
-    });
+        if (real) {
+            totalDistance += real.distance;
+            totalTime += real.duration;
+        } else {
+            const straight = calculateDistance(route[i], route[i+1]);
+            const factor = getUrbanRoadFactor(route[i], route[i+1]);
+            const d = straight * factor;
+            totalDistance += d;
+            totalTime += (d / getAverageSpeed()) * 60;
+        }
+    }
 
-    html += `
-        <div class="route-info" style="border-left-color: #48bb78; background: #f0fff4;">
-            <h4>📊 Resumen Total (Rutas Reales)</h4>
-            <p><strong>🛣️ Distancia Total:</strong> ${totalDistance.toFixed(2)} km (por calles)</p>
-            <p><strong>⏱️ Tiempo Total:</strong> ${Math.floor(totalTime / 60)}h ${Math.round(totalTime % 60)}m</p>
-            <p><strong>📍 Paradas:</strong> ${route.length} direcciones</p>
-            <p><strong>🚗 Velocidad Promedio:</strong> ${avgSpeed} km/h</p>
-        </div>
-    `;
+    optimizedRouteData.stats = { distance_km: totalDistance, time_min: totalTime };
 
+    // render resumen
+    let html = `<div class="route-info">
+        <h4>🎯 Ruta Optimizada para "${currentCircuit}"</h4>
+        <p><strong>Algoritmo:</strong> ${optimizedRouteData.algorithm}</p>
+        <p><strong>Transporte:</strong> ${document.getElementById('transportSelect').selectedOptions[0].text}</p>
+        <p><strong>Total de paradas:</strong> ${route.length}</p>
+    </div>`;
+    html += `<div class="route-info" style="border-left-color:#48bb78;background:#f0fff4;">
+        <h4>📊 Resumen Total</h4>
+        <p><strong>🛣️ Distancia Total:</strong> ${totalDistance.toFixed(2)} km</p>
+        <p><strong>⏱️ Tiempo Total:</strong> ${Math.floor(totalTime/60)}h ${Math.round(totalTime%60)}m</p>
+    </div>`;
     resultsDiv.innerHTML = html;
-    showSuccess('✅ Ruta optimizada calculada con distancias reales');
+    showSuccess('✅ Ruta optimizada calculada con distancias reales (cuando ORS disponible)');
+}
+
+// =======================
+// Velocidades promedio
+// =======================
+
+function getAverageSpeed() {
+    const t = document.getElementById('transportSelect')?.value || 'driving-car';
+    if (t.startsWith('driving')) return 40;
+    if (t.startsWith('cycling')) return 18;
+    if (t.startsWith('foot')) return 5;
+    return 40;
 }

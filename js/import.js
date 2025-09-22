@@ -1,33 +1,20 @@
-// Funciones de importación
+/* import.js - completo y listo
+   Soporta: .txt/.csv (direcciones), .csv (lat,lng), .kml, .kmz, .xlsx
+*/
 
-function loadFromText() {
-    document.getElementById('textFileInput').click();
-}
-
-function loadFromCSV() {
-    document.getElementById('csvFileInput').click();
-}
-
-function loadFromKML() {
-    document.getElementById('kmlFileInput').click();
-}
+async function loadFromText() { document.getElementById('textFileInput').click(); }
+function loadFromCSV() { document.getElementById('csvFileInput').click(); }
+function loadFromKML() { document.getElementById('kmlFileInput').click(); }
+function loadFromXLSX() { document.getElementById('xlsxFileInput').click(); }
 
 function handleTextFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
-    reader.onload = async function(e) {
+    reader.onload = async (e) => {
         const text = e.target.result;
-        const addresses = text.split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0);
-        
-        if (addresses.length > 40) {
-            showError('Máximo 40 direcciones por circuito');
-            return;
-        }
-
+        const addresses = text.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+        if (addresses.length > 200) { showError('Máximo 200 líneas por importación'); return; }
         showLoading();
         await geocodeAddresses(addresses);
         hideLoading();
@@ -38,349 +25,165 @@ function handleTextFileUpload(event) {
 function handleCSVFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = function(e) {
         const text = e.target.result;
-        parseCSVSchoolFormat(text);
+        parseCSVWithCoordinates(text);
     };
     reader.readAsText(file);
 }
 
-function handleKMLFileUpload(event) {
+async function handleKMLFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
+    const name = file.name.toLowerCase();
 
-    const fileName = file.name.toLowerCase();
-    
-    if (fileName.endsWith('.kmz')) {
-        showError('Los archivos KMZ deben ser descomprimidos primero. Extrae el archivo .kml del .kmz y vuelve a intentar.');
+    if (name.endsWith('.kmz')) {
+        showLoading();
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const zip = await JSZip.loadAsync(arrayBuffer);
+            const kmlFile = Object.keys(zip.files).find(f=>f.toLowerCase().endsWith('.kml'));
+            if (!kmlFile) { showError('KMZ no contiene KML'); hideLoading(); return; }
+            const kmlContent = await zip.files[kmlFile].async('string');
+            parseKMLContent(kmlContent, file.name);
+        } catch (err) {
+            console.error(err);
+            showError('Error al procesar KMZ: ' + err.message);
+        } finally { hideLoading(); }
         return;
     }
 
-    showLoading();
-    showSuccess('Procesando archivo KML...');
-
     const reader = new FileReader();
-    reader.onload = function(e) {
-        parseKMLContent(e.target.result, file.name);
-    };
+    reader.onload = function(e) { parseKMLContent(e.target.result, file.name); };
     reader.readAsText(file);
 }
 
-function parseCSVSchoolFormat(csvText) {
-    try {
-        const lines = csvText.trim().split('\n');
-        let importCount = 0;
-        
-        showLoading();
-        showSuccess('Procesando CSV con formato de escuelas...');
-        
-        console.log('Total de líneas en CSV:', lines.length);
-        
-        lines.forEach((line, index) => {
-            if (line.trim().length === 0) return;
-            
-            console.log(`Procesando línea ${index + 1}: ${line}`);
-            
-            // Dividir por comas, pero respetando las comas dentro de comillas
-            const parts = parseCSVLine(line);
-            console.log('Partes encontradas:', parts);
-            
-            if (parts.length >= 2) {
-                let schoolName = parts[0].trim();
-                let addressPart = parts[1].trim();
-                
-                // Si hay más partes, combinar como dirección
-                if (parts.length > 2) {
-                    addressPart = parts.slice(1).join(', ').trim();
-                }
-                
-                // Limpiar el nombre de la escuela
-                schoolName = schoolName.replace(/^["']|["']$/g, '');
-                
-                // Limpiar y mejorar la dirección
-                let cleanAddress = cleanSchoolAddress(addressPart);
-                
-                console.log(`Escuela: ${schoolName}, Dirección limpia: ${cleanAddress}`);
-                
-                if (cleanAddress && cleanAddress.length > 5) {
-                    // Agregar a lista para geocodificar después
-                    schoolAddresses.push({
-                        name: schoolName,
-                        address: cleanAddress,
-                        originalLine: line
-                    });
+function handleXLSXFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            let importCount = 0;
+            rows.forEach(row => {
+                if (!row || row.length===0) return;
+                // Accept common layouts: [name, lat, lng] or [lat, lng] or [address]
+                if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
+                    const name = row[0] || ('Punto ' + (circuits[currentCircuit].length+1));
+                    circuits[currentCircuit].push({ address: name, lat: parseFloat(row[1]), lng: parseFloat(row[2]) });
+                    importCount++;
+                } else if (row.length>=2 && !isNaN(parseFloat(row[0])) && !isNaN(parseFloat(row[1]))) {
+                    circuits[currentCircuit].push({ address: ('Punto ' + (circuits[currentCircuit].length+1)), lat: parseFloat(row[0]), lng: parseFloat(row[1]) });
+                    importCount++;
+                } else if (row.length>=1 && typeof row[0] === 'string' && row[0].includes(',')) {
+                    // maybe "address, city"
+                    const addr = row[0].trim();
+                    // Push for geocoding
+                    pendingGeocodePush(addr);
                     importCount++;
                 }
-            }
-        });
-        
-        if (importCount > 0) {
-            showSuccess(`${importCount} escuelas encontradas. Comenzando geocodificación...`);
-            geocodeSchoolAddresses(schoolAddresses);
-        } else {
-            hideLoading();
-            showError('No se pudieron interpretar las direcciones del CSV. Verifica el formato.');
-        }
-        
-    } catch (error) {
-        hideLoading();
-        showError('Error al procesar el archivo CSV: ' + error.message);
-        console.error('Error CSV:', error);
-    }
-}
-
-// Variable temporal para almacenar direcciones de escuelas
-let schoolAddresses = [];
-
-function parseCSVLine(line) {
-    const result = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        
-        if (char === '"' || char === "'") {
-            inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-            result.push(current);
-            current = '';
-            continue;
-        }
-        
-        current += char;
-    }
-    
-    if (current) {
-        result.push(current);
-    }
-    
-    return result;
-}
-
-function cleanSchoolAddress(address) {
-    // Remover códigos postales y limpiar la dirección
-    let cleaned = address
-        .replace(/^["']|["']$/g, '') // Quitar comillas
-        .replace(/B\d{4}[A-Z]{0,3}\s*/gi, '') // Quitar códigos postales como B1611BXD
-        .replace(/\s*AR\s*$/i, '') // Quitar "AR" al final
-        .replace(/,\s*PROVINCIA DE BUENOS AIRES\s*$/i, ', Buenos Aires') // Normalizar provincia
-        .replace(/\s*BUENOS AIRES\s*AR\s*$/i, ', Buenos Aires') // Normalizar
-        .replace(/,\s*,/g, ',') // Remover comas dobles
-        .replace(/^\s*,|,\s*$/g, '') // Remover comas al inicio/final
-        .trim();
-    
-    // Si no tiene localidad, agregar Don Torcuato si parece ser de ahí
-    if (!cleaned.match(/(don torcuato|tigre|san isidro|vicente lópez|buenos aires)/i)) {
-        // Si tiene pinta de ser del gran Buenos Aires, agregar Don Torcuato
-        if (cleaned.match(/(av\.|avenida|gral|general)/i)) {
-            cleaned += ', Don Torcuato, Buenos Aires';
-        }
-    }
-    
-    return cleaned;
-}
-
-async function geocodeSchoolAddresses(schools) {
-    let successCount = 0;
-    let totalSchools = schools.length;
-    
-    for (let i = 0; i < schools.length; i++) {
-        const school = schools[i];
-        
-        showSuccess(`Geocodificando ${i + 1}/${totalSchools}: ${school.name}`);
-        
-        console.log(`Geocodificando: ${school.name} - ${school.address}`);
-        
-        const result = await geocodeAddress(school.address);
-        
-        if (result) {
-            circuits[currentCircuit].push({
-                address: `${school.name}: ${result.display_name}`,
-                originalInput: school.originalLine,
-                lat: result.lat,
-                lng: result.lng
             });
-            successCount++;
-            console.log(`✅ Geocodificado: ${school.name}`);
-        } else {
-            console.log(`❌ No se pudo geocodificar: ${school.name} - ${school.address}`);
-            
-            // Intentar con solo el nombre de la escuela + localidad
-            const fallbackAddress = `${school.name}, Don Torcuato, Buenos Aires`;
-            const fallbackResult = await geocodeAddress(fallbackAddress);
-            
-            if (fallbackResult) {
-                circuits[currentCircuit].push({
-                    address: `${school.name}: ${fallbackResult.display_name} (aproximado)`,
-                    originalInput: school.originalLine,
-                    lat: fallbackResult.lat,
-                    lng: fallbackResult.lng
-                });
-                successCount++;
-                console.log(`✅ Geocodificado (aproximado): ${school.name}`);
+            if (importCount>0) {
+                updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+                showSuccess('✅ ' + importCount + ' ubicaciones importadas desde XLSX');
+            } else {
+                showError('No se detectaron coordenadas en el archivo XLSX');
             }
+        } catch (err) {
+            console.error(err);
+            showError('Error procesando XLSX: ' + err.message);
         }
-        
-        // Delay para no sobrecargar la API
-        await new Promise(resolve => setTimeout(resolve, 1500));
-    }
-    
-    // Limpiar array temporal
-    schoolAddresses = [];
-    
-    if (successCount > 0) {
-        updateAddressesList();
-        updateCircuitTabs();
-        showAddressesOnMap();
-        showSuccess(`✅ ${successCount} de ${totalSchools} escuelas importadas correctamente`);
-        optimizedRouteData = null;
-    } else {
-        showError('No se pudieron importar escuelas. Verifica las direcciones en el CSV.');
-    }
-    
-    hideLoading();
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// Helper to queue address for geocoding (keeps UX simple)
+function pendingGeocodePush(address) {
+    // geocode inmediatamente
+    geocodeAddresses([address]);
 }
 
 function parseCSVWithCoordinates(csvText) {
     try {
-        const lines = csvText.trim().split('\n');
+        const lines = csvText.trim().split(/\r?\n/);
         let importCount = 0;
-        
-        lines.forEach((line, index) => {
-            const parts = line.split(',').map(part => part.trim().replace(/^["']|["']$/g, ''));
-            
-            if (parts.length >= 3) {
-                let name, address, lat, lng;
-                
-                if (parts.length === 3) {
-                    [address, lat, lng] = parts;
-                    name = `Punto ${index + 1}`;
-                } else {
-                    [name, address, lat, lng] = parts;
-                }
-                
-                const latitude = parseFloat(lat);
-                const longitude = parseFloat(lng);
-                
-                if (!isNaN(latitude) && !isNaN(longitude) && 
-                    latitude >= -90 && latitude <= 90 && 
-                    longitude >= -180 && longitude <= 180) {
-                    
-                    circuits[currentCircuit].push({
-                        address: address || name,
-                        originalInput: `${name}: ${address}`,
-                        lat: latitude,
-                        lng: longitude
-                    });
-                    importCount++;
-                }
+        lines.forEach(line => {
+            if (!line || !line.trim()) return;
+            const parts = line.split(',').map(p=>p.trim().replace(/^['"]|['"]$/g,''));
+            // detect lat,lng or name,lat,lng
+            if (parts.length>=3 && !isNaN(parseFloat(parts[parts.length-2])) && !isNaN(parseFloat(parts[parts.length-1]))) {
+                const lat = parseFloat(parts[parts.length-2]);
+                const lng = parseFloat(parts[parts.length-1]);
+                const name = parts.slice(0, parts.length-2).join(', ') || ('Punto ' + (circuits[currentCircuit].length+1));
+                circuits[currentCircuit].push({ address: name, lat, lng });
+                importCount++;
+            } else if (parts.length===2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+                circuits[currentCircuit].push({ address: 'Punto ' + (circuits[currentCircuit].length+1), lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) });
+                importCount++;
+            } else {
+                // fallback: treat as address string and geocode
+                geocodeAddresses([line]);
             }
         });
-        
-        if (importCount > 0) {
-            updateAddressesList();
-            updateCircuitTabs();
-            showAddressesOnMap();
-            showSuccess(`✅ ${importCount} ubicaciones importadas desde CSV`);
-            optimizedRouteData = null;
-        } else {
-            showError('No se pudieron importar ubicaciones. Verifica el formato del CSV.');
+        if (importCount>0) {
+            updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+            showSuccess('✅ ' + importCount + ' ubicaciones importadas desde CSV');
         }
-        
-    } catch (error) {
-        showError('Error al procesar el archivo CSV: ' + error.message);
-        console.error('Error CSV:', error);
+    } catch (err) {
+        console.error(err); showError('Error al procesar CSV: ' + err.message);
     }
 }
 
+// KML parsing
 function parseKMLContent(kmlContent, fileName) {
     try {
-        console.log('Iniciando parseo de KML:', fileName);
-        
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(kmlContent, 'text/xml');
-        
-        // Verificar errores de parsing
         const parserError = xmlDoc.getElementsByTagName('parsererror');
-        if (parserError.length > 0) {
-            console.error('Error de parsing XML:', parserError[0].textContent);
-            throw new Error('Archivo KML no válido o corrupto');
-        }
+        if (parserError.length>0) throw new Error('KML inválido');
 
-        console.log('XML parseado correctamente');
-        
-        // Buscar placemarks
         const placemarks = xmlDoc.getElementsByTagName('Placemark');
-        console.log('Placemarks encontrados:', placemarks.length);
-        
-        if (placemarks.length === 0) {
-            // Intentar buscar otros elementos
-            const points = xmlDoc.getElementsByTagName('Point');
-            const coords = xmlDoc.getElementsByTagName('coordinates');
-            console.log('Points encontrados:', points.length);
-            console.log('Coordinates encontrados:', coords.length);
-            
-            if (points.length === 0 && coords.length === 0) {
-                throw new Error('No se encontraron puntos o coordenadas en el archivo KML');
-            }
-        }
-
         let importCount = 0;
 
-        // Procesar cada placemark
-        Array.from(placemarks).forEach((placemark, index) => {
-            console.log(`Procesando placemark ${index + 1}`);
-            
-            const name = getKMLElementText(placemark, 'name') || `Punto ${index + 1}`;
-            const description = getKMLElementText(placemark, 'description') || '';
-            
-            console.log(`Nombre: ${name}, Descripción: ${description}`);
-            
-            // Buscar coordenadas
-            const coordsElement = placemark.getElementsByTagName('coordinates')[0];
-            if (coordsElement) {
-                const coordsText = coordsElement.textContent.trim();
-                console.log(`Coordenadas raw: ${coordsText}`);
-                
-                const coords = parseKMLCoordinates(coordsText);
-                console.log(`Coordenadas parseadas:`, coords);
-                
-                if (coords) {
-                    circuits[currentCircuit].push({
-                        address: description || name,
-                        originalInput: `${name} (desde KML)`,
-                        lat: coords.lat,
-                        lng: coords.lng
-                    });
+        if (placemarks.length===0) {
+            // try coordinates elements directly
+            const coords = xmlDoc.getElementsByTagName('coordinates');
+            for (let i=0;i<coords.length;i++) {
+                const txt = coords[i].textContent.trim();
+                const p = parseKMLCoordinates(txt);
+                if (p) {
+                    circuits[currentCircuit].push({ address: 'Punto KML', lat: p.lat, lng: p.lng });
                     importCount++;
-                    console.log(`✅ Importado: ${name}`);
-                } else {
-                    console.log(`❌ No se pudieron parsear coordenadas para: ${name}`);
                 }
-            } else {
-                console.log(`❌ No se encontraron coordenadas para: ${name}`);
             }
-        });
-
-        console.log(`Total importado: ${importCount}`);
-
-        if (importCount > 0) {
-            updateAddressesList();
-            updateCircuitTabs();
-            showAddressesOnMap();
-            showSuccess(`✅ ${importCount} ubicaciones importadas desde ${fileName}`);
-            optimizedRouteData = null;
         } else {
-            showError('No se encontraron ubicaciones válidas en el archivo KML. Verifica que contenga elementos <Placemark> con <coordinates>.');
+            Array.from(placemarks).forEach((placemark, idx) => {
+                const name = getKMLElementText(placemark, 'name') || ('Punto ' + (circuits[currentCircuit].length+1));
+                const desc = getKMLElementText(placemark, 'description') || '';
+                const coordsEl = placemark.getElementsByTagName('coordinates')[0];
+                if (coordsEl) {
+                    const coords = parseKMLCoordinates(coordsEl.textContent);
+                    if (coords) {
+                        circuits[currentCircuit].push({ address: desc || name, lat: coords.lat, lng: coords.lng });
+                        importCount++;
+                    }
+                }
+            });
         }
 
-    } catch (error) {
-        showError('Error al procesar archivo KML: ' + error.message);
-        console.error('Error parsing KML:', error);
-        console.log('Contenido KML (primeros 500 caracteres):', kmlContent.substring(0, 500));
+        if (importCount>0) {
+            updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+            showSuccess('✅ ' + importCount + ' ubicaciones importadas desde ' + fileName);
+        } else {
+            showError('No se encontraron ubicaciones válidas en el archivo KML/KMZ.');
+        }
+    } catch (err) {
+        console.error(err); showError('Error parseando KML: ' + err.message);
     } finally {
         hideLoading();
     }
@@ -393,33 +196,30 @@ function getKMLElementText(parent, tagName) {
 
 function parseKMLCoordinates(coordsText) {
     try {
-        console.log('Parseando coordenadas:', coordsText);
-        
-        // KML puede tener múltiples coordenadas separadas por espacios o saltos de línea
-        const coordLines = coordsText.split(/\s+/).filter(line => line.trim().length > 0);
-        
+        const coordLines = coordsText.split(/\s+/).filter(l=>l.trim().length>0);
         for (const coordLine of coordLines) {
             const parts = coordLine.split(',');
-            if (parts.length >= 2) {
+            if (parts.length>=2) {
                 const lng = parseFloat(parts[0].trim());
                 const lat = parseFloat(parts[1].trim());
-                
-                console.log(`Intentando parsear: lng=${lng}, lat=${lat}`);
-                
-                if (!isNaN(lat) && !isNaN(lng) && 
-                    lat >= -90 && lat <= 90 && 
-                    lng >= -180 && lng <= 180) {
-                    console.log(`✅ Coordenadas válidas: ${lat}, ${lng}`);
-                    return { lat, lng };
-                }
+                if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
             }
         }
-        
-        console.log('❌ No se encontraron coordenadas válidas');
         return null;
-        
-    } catch (error) {
-        console.error('Error parsing coordinates:', coordsText, error);
+    } catch (err) {
+        console.error('Error parseando coordenadas KML', err);
         return null;
     }
 }
+
+// attach listeners
+document.addEventListener('DOMContentLoaded', function() {
+    const textIn = document.getElementById('textFileInput');
+    const csvIn = document.getElementById('csvFileInput');
+    const kmlIn = document.getElementById('kmlFileInput');
+    const xlsxIn = document.getElementById('xlsxFileInput');
+    if (textIn) textIn.addEventListener('change', handleTextFileUpload);
+    if (csvIn) csvIn.addEventListener('change', handleCSVFileUpload);
+    if (kmlIn) kmlIn.addEventListener('change', handleKMLFileUpload);
+    if (xlsxIn) xlsxIn.addEventListener('change', handleXLSXFileUpload);
+});

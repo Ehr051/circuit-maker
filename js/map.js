@@ -85,3 +85,13 @@ function clearMap() {
         routeLayer = null;
     }
 }
+
+const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+
+marker.on('dragend', function(e) {
+    const newLatLng = e.target.getLatLng();
+    location.lat = newLatLng.lat;
+    location.lng = newLatLng.lng;
+    updateAddressesList();
+    showSuccess("📍 Punto actualizado manualmente en el mapa");
+});
