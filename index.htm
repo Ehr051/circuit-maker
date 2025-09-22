@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimizador de Rutas Escolares</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚌 Optimizador de Rutas Escolares</h1>
+            <span class="free-badge">100% GRATUITO</span>
+            <p style="text-align: center; color: #718096; margin-top: 10px;">
+                Basado en OpenStreetMap - Sin límites ni costos
+            </p>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-panel">
+                <!-- Info del Proveedor -->
+                <div class="provider-info">
+                    <strong>🗺️ Servicios Gratuitos:</strong><br>
+                    • Mapas: OpenStreetMap<br>
+                    • Geocodificación: Nominatim<br>
+                    • Sin límites de uso
+                </div>
+
+                <!-- Selector de Circuitos -->
+                <div class="section">
+                    <h3>📍 Gestión de Circuitos</h3>
+                    <div class="circuit-selector" id="circuitTabs"></div>
+                    <button class="btn" onclick="addCircuit()">+ Nuevo Circuito</button>
+                    <button class="btn btn-danger" onclick="deleteCurrentCircuit()">🗑️ Eliminar Circuito</button>
+                </div>
+
+                <!-- Carga de Direcciones -->
+                <div class="section">
+                    <h3>📝 Cargar Direcciones</h3>
+                    <div class="input-group">
+                        <label>Dirección Manual:</label>
+                        <input type="text" id="addressInput" placeholder="Ej: Av. Corrientes 1000, Buenos Aires">
+                    </div>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 15px;">
+                        <button class="btn" onclick="addAddress()">➕ Agregar</button>
+                        <button class="btn btn-success" onclick="addCurrentLocation()">📍 Mi Ubicación</button>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>Importar desde Archivo:</label>
+                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" onclick="loadFromText()">📄 TXT/CSV</button>
+                            <button class="btn btn-secondary" onclick="loadFromCSV()">📊 CSV Coordenadas</button>
+                            <button class="btn btn-secondary" onclick="loadFromKML()">🗺️ KML/KMZ</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Inputs de archivo ocultos -->
+                    <input type="file" id="textFileInput" accept=".txt,.csv" style="display: none;">
+                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                    <input type="file" id="kmlFileInput" accept=".kml,.kmz" style="display: none;">
+                </div>
+
+                <!-- Lista de Direcciones -->
+                <div class="section">
+                    <h3>📋 Direcciones del Circuito Actual</h3>
+                    <div id="addressesList"></div>
+                    <button class="btn btn-secondary" onclick="clearAddresses()">🗑️ Limpiar Todo</button>
+                </div>
+
+                <!-- Optimización -->
+                <div class="section">
+                    <h3>🎯 Optimización de Ruta</h3>
+                    <div class="input-group">
+                        <label>Algoritmo:</label>
+                        <select id="algorithmSelect">
+                            <option value="nearestNeighbor">Nearest Neighbor (Rápido)</option>
+                            <option value="tsp">TSP Solver (Óptimo)</option>
+                            <option value="genetic">Algoritmo Genético</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Tipo de Transporte:</label>
+                        <select id="transportSelect">
+                            <option value="driving-car">🚗 Automóvil</option>
+                            <option value="driving-hgv">🚛 Vehículo Pesado</option>
+                            <option value="cycling-regular">🚲 Bicicleta</option>
+                            <option value="foot-walking">🚶 Caminando</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="optimizeRoute()">🚀 Optimizar Ruta</button>
+                </div>
+
+                <!-- Exportación -->
+                <div class="section">
+                    <h3>💾 Exportar Resultados</h3>
+                    <div class="export-buttons">
+                        <button class="btn btn-excel" onclick="exportToExcel()">📊 Excel</button>
+                        <button class="btn btn-success" onclick="exportToJSON()">📄 JSON</button>
+                        <button class="btn btn-secondary" onclick="exportToCSV()">📋 CSV</button>
+                        <button class="btn btn-secondary" onclick="exportToKML()">🗺️ KML</button>
+                    </div>
+                </div>
+
+                <!-- Resultados -->
+                <div class="section">
+                    <h3>📊 Resultados</h3>
+                    <div class="error" id="errorMessage"></div>
+                    <div class="success" id="successMessage"></div>
+                    <div class="loading" id="loading">
+                        <div class="spinner"></div>
+                        Calculando mejor ruta...
+                    </div>
+                    <div id="results" class="results"></div>
+                </div>
+            </div>
+
+            <div class="map-container">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Librerías externas -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- JavaScript modular -->
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/geocoding.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/circuits.js"></script>
+    <script src="js/algorithms.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
