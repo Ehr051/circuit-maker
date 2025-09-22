@@ -102,7 +102,15 @@ function tspSolver(points) {
 // =======================
 
 async function getRouteByStreets(from, to, profile='driving-car') {
-    const apiKey = document.getElementById('orsApiKey')?.value?.trim();
+    // API key por defecto (no visible en HTML)
+    const DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
+    let apiKey = "";
+    const input = document.getElementById('orsApiKey');
+    if (input && input.value && input.value.trim()) {
+        apiKey = input.value.trim();
+    } else {
+        apiKey = DEFAULT_ORS_API_KEY;
+    }
     if (!apiKey) return null; // fallback
     const url = `https://api.openrouteservice.org/v2/directions/${encodeURIComponent(profile)}?api_key=${encodeURIComponent(apiKey)}&start=${from.lng},${from.lat}&end=${to.lng},${to.lat}`;
     try {
@@ -162,7 +170,15 @@ async function calculateRouteStats(route) {
     const resultsDiv = document.getElementById('results');
     let totalDistance = 0, totalTime = 0;
     const profile = document.getElementById('transportSelect').value || 'driving-car';
-    const apiKey = document.getElementById('orsApiKey')?.value?.trim();
+    // API key por defecto (no visible en HTML)
+    const DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
+    let apiKey = "";
+    const input = document.getElementById('orsApiKey');
+    if (input && input.value && input.value.trim()) {
+        apiKey = input.value.trim();
+    } else {
+        apiKey = DEFAULT_ORS_API_KEY;
+    }
 
     for (let i=0; i<route.length-1; i++) {
         let real = null;
