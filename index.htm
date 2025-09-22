@@ -40,13 +40,12 @@
                 <div class="section">
                     <h3>📝 Cargar Direcciones</h3>
                     <div class="input-group">
-                        <label>Dirección Manual:</label>
-                        <input type="text" id="addressInput" placeholder="Ej: Av. Corrientes 1000, Buenos Aires">
-                    </div>
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 15px;">
-                        <button class="btn" onclick="addAddress()">➕ Agregar</button>
-                        <button class="btn btn-success" onclick="addCurrentLocation()">📍 Mi Ubicación</button>
-                    </div>
+                            <label>Dirección:</label>
+                            <input type="text" id="addressInput" placeholder="Ej: Av. Corrientes 1000, Buenos Aires">
+                        </div>
+                        <button class="btn" onclick="addAddress()">➕ Agregar Dirección</button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">� Importar Archivo</button>
+                        <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.kml,.kmz" style="display: none;" onchange="handleUnifiedImport(event)">
                     
                     <div class="input-group">
                         <label>Importar desde Archivo:</label>

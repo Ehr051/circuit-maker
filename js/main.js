@@ -1,4 +1,109 @@
 // Archivo principal de inicialización
+// Importación unificada de archivos
+async function handleUnifiedImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    const reader = new FileReader();
+
+    reader.onload = async function(e) {
+        let text = e.target.result;
+        let rows = [];
+        // Detectar tipo de archivo
+        if (name.endsWith('.csv') || name.endsWith('.txt')) {
+            rows = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+        } else if (name.endsWith('.xlsx')) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            } catch (err) {
+                showError('Error procesando archivo XLSX: ' + err.message);
+                return;
+            }
+        } else if (name.endsWith('.kmz') || name.endsWith('.kml')) {
+            // Procesar KML/KMZ
+            try {
+                if (name.endsWith('.kmz')) {
+                    const zip = await JSZip.loadAsync(file);
+                    const kmlFile = Object.keys(zip.files).find(f => f.toLowerCase().endsWith('.kml'));
+                    if (!kmlFile) { showError('KMZ no contiene KML'); return; }
+                    text = await zip.files[kmlFile].async('string');
+                }
+                // Procesar KML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(text, 'text/xml');
+                const placemarks = xmlDoc.getElementsByTagName('Placemark');
+                let importCount = 0;
+                Array.from(placemarks).forEach((placemark, idx) => {
+                    const name = placemark.getElementsByTagName('name')[0]?.textContent || ('Punto ' + (circuits[currentCircuit].length+1));
+                    const coordsEl = placemark.getElementsByTagName('coordinates')[0];
+                    if (coordsEl) {
+                        const coords = coordsEl.textContent.trim().split(',');
+                        if (coords.length >= 2) {
+                            circuits[currentCircuit].push({ address: name, lat: parseFloat(coords[1]), lng: parseFloat(coords[0]) });
+                            importCount++;
+                        }
+                    }
+                });
+                if (importCount > 0) {
+                    updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+                    showSuccess('✅ ' + importCount + ' ubicaciones importadas desde KML/KMZ');
+                } else {
+                    showError('No se encontraron ubicaciones válidas en el archivo KML/KMZ.');
+                }
+                return;
+            } catch (err) {
+                showError('Error procesando KML/KMZ: ' + err.message);
+                return;
+            }
+        } else {
+            showError('Formato de archivo no soportado.');
+            return;
+        }
+
+        // Procesar filas (CSV/TXT/XLSX)
+        let geocodeList = [];
+        let importCount = 0;
+        for (let row of rows) {
+            let parts = Array.isArray(row) ? row : row.split(',');
+            // Buscar coordenadas
+            let lat = null, lng = null, address = '';
+            for (let p of parts) {
+                if (/^-?\d{2,}\.\d+/.test(p)) {
+                    if (lat === null) lat = parseFloat(p);
+                    else if (lng === null) lng = parseFloat(p);
+                } else {
+                    address += (address ? ', ' : '') + p.trim();
+                }
+            }
+            // Si hay coordenadas, usar directamente
+            if (lat !== null && lng !== null) {
+                circuits[currentCircuit].push({ address, lat, lng });
+                importCount++;
+            } else if (address) {
+                geocodeList.push(address);
+                importCount++;
+            }
+        }
+        // Geocodificar si es necesario
+        if (geocodeList.length > 0) {
+            await geocodeAddresses(geocodeList);
+        }
+        if (importCount > 0) {
+            updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+            showSuccess('✅ ' + importCount + ' ubicaciones importadas');
+        }
+    };
+    if (name.endsWith('.xlsx')) {
+        reader.readAsArrayBuffer(file);
+    } else if (name.endsWith('.kmz')) {
+        reader.readAsArrayBuffer(file);
+    } else {
+        reader.readAsText(file);
+    }
+}
 
 // Inicialización cuando se carga la página
 document.addEventListener('DOMContentLoaded', function() {
