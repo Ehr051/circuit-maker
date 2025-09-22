@@ -147,10 +147,16 @@ function handleXLSXFileUpload(event) {
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             let importCount = 0;
+            let geocodeList = [];
+            let nameList = [];
             rows.forEach(row => {
                 if (!row || row.length===0) return;
-                // Accept common layouts: [name, lat, lng] or [lat, lng] or [address]
-                if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
+                // Si tiene dos columnas: [nombre, dirección]
+                if (row.length===2 && typeof row[0]==='string' && typeof row[1]==='string') {
+                    nameList.push(row[0]);
+                    geocodeList.push(row[1]);
+                    importCount++;
+                } else if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
                     const name = row[0] || ('Punto ' + (circuits[currentCircuit].length+1));
                     circuits[currentCircuit].push({ address: name, lat: parseFloat(row[1]), lng: parseFloat(row[2]) });
                     importCount++;
@@ -158,18 +164,29 @@ function handleXLSXFileUpload(event) {
                     circuits[currentCircuit].push({ address: ('Punto ' + (circuits[currentCircuit].length+1)), lat: parseFloat(row[0]), lng: parseFloat(row[1]) });
                     importCount++;
                 } else if (row.length>=1 && typeof row[0] === 'string' && row[0].includes(',')) {
-                    // maybe "address, city"
                     const addr = row[0].trim();
-                    // Push for geocoding
-                    pendingGeocodePush(addr);
+                    geocodeList.push(addr);
+                    nameList.push('Punto ' + (circuits[currentCircuit].length+1));
                     importCount++;
                 }
             });
-            if (importCount>0) {
+            // Geocodificar direcciones y asociar nombre
+            if (geocodeList.length > 0) {
+                (async () => {
+                    for (let i = 0; i < geocodeList.length; i++) {
+                        const res = await geocodeAddress(geocodeList[i]);
+                        if (res) {
+                            circuits[currentCircuit].push({ address: nameList[i], lat: res.lat, lng: res.lng });
+                        }
+                    }
+                    updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+                    showSuccess('✅ ' + importCount + ' ubicaciones importadas desde XLSX');
+                })();
+            } else if (importCount>0) {
                 updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
                 showSuccess('✅ ' + importCount + ' ubicaciones importadas desde XLSX');
             } else {
-                showError('No se detectaron coordenadas en el archivo XLSX');
+                showError('No se detectaron coordenadas ni direcciones en el archivo XLSX');
             }
         } catch (err) {
             console.error(err);
@@ -189,11 +206,15 @@ function parseCSVWithCoordinates(csvText) {
     try {
         const lines = csvText.trim().split(/\r?\n/);
         let importCount = 0;
+        let geocodeList = [];
         lines.forEach(line => {
             if (!line || !line.trim()) return;
             const parts = line.split(',').map(p=>p.trim().replace(/^['"]|['"]$/g,''));
-            // detect lat,lng or name,lat,lng
-            if (parts.length>=3 && !isNaN(parseFloat(parts[parts.length-2])) && !isNaN(parseFloat(parts[parts.length-1]))) {
+            // Si solo hay una columna, se trata como dirección completa (nombre, dirección, CP, etc)
+            if (parts.length === 1) {
+                geocodeList.push(parts[0]);
+                importCount++;
+            } else if (parts.length>=3 && !isNaN(parseFloat(parts[parts.length-2])) && !isNaN(parseFloat(parts[parts.length-1]))) {
                 const lat = parseFloat(parts[parts.length-2]);
                 const lng = parseFloat(parts[parts.length-1]);
                 const name = parts.slice(0, parts.length-2).join(', ') || ('Punto ' + (circuits[currentCircuit].length+1));
@@ -203,10 +224,14 @@ function parseCSVWithCoordinates(csvText) {
                 circuits[currentCircuit].push({ address: 'Punto ' + (circuits[currentCircuit].length+1), lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) });
                 importCount++;
             } else {
-                // fallback: treat as address string and geocode
-                geocodeAddresses([line]);
+                // Si hay más columnas pero no son coordenadas, se trata como dirección completa
+                geocodeList.push(line);
+                importCount++;
             }
         });
+        if (geocodeList.length > 0) {
+            geocodeAddresses(geocodeList);
+        }
         if (importCount>0) {
             updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
             showSuccess('✅ ' + importCount + ' ubicaciones importadas desde CSV');
