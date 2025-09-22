@@ -14,36 +14,63 @@ function handleSpecialFileUpload(event) {
     const name = file.name.toLowerCase();
     // Detecta doble extensión .xlsx.kml o .xlsx.kmz
     if (name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
-        // Procesar como XLSX primero
+        // Procesar como KMZ si el contenido es ZIP/KML
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = async function(e) {
             try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-                let importCount = 0;
-                rows.forEach(row => {
-                    if (!row || row.length===0) return;
-                    // Procesa igual que XLSX normal
-                    if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
-                        const name = row[0] || ('Punto ' + (circuits[currentCircuit].length+1));
-                        circuits[currentCircuit].push({ address: name, lat: parseFloat(row[1]), lng: parseFloat(row[2]) });
-                        importCount++;
-                    } else if (row.length>=2 && !isNaN(parseFloat(row[0])) && !isNaN(parseFloat(row[1]))) {
-                        circuits[currentCircuit].push({ address: ('Punto ' + (circuits[currentCircuit].length+1)), lat: parseFloat(row[0]), lng: parseFloat(row[1]) });
-                        importCount++;
-                    } else if (row.length>=1 && typeof row[0] === 'string' && row[0].includes(',')) {
-                        const addr = row[0].trim();
-                        pendingGeocodePush(addr);
-                        importCount++;
+                const arrayBuffer = e.target.result;
+                // Intentar abrir como ZIP (KMZ)
+                try {
+                    const zip = await JSZip.loadAsync(arrayBuffer);
+                    const kmlFile = Object.keys(zip.files).find(f=>f.toLowerCase().endsWith('.kml'));
+                    if (!kmlFile) throw new Error('KMZ no contiene KML');
+                    const kmlContent = await zip.files[kmlFile].async('string');
+                    parseKMLContent(kmlContent, file.name);
+                    return;
+                } catch (zipErr) {
+                    // Si no es ZIP, intentar como texto KML
+                    try {
+                        const text = new TextDecoder().decode(arrayBuffer);
+                        parseKMLContent(text, file.name);
+                        return;
+                    } catch (txtErr) {
+                        // Si tampoco es texto, intentar como XLSX
+                        try {
+                            const data = new Uint8Array(arrayBuffer);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                            let importCount = 0;
+                            rows.forEach(row => {
+                                if (!row || row.length===0) return;
+                                // Si tiene columnas nombre y dirección, geocodificar
+                                if (row.length>=2 && typeof row[0]==='string' && typeof row[1]==='string') {
+                                    // Corrige typo: geocodeadresse -> geocodeAddresses
+                                    geocodeAddresses([row[1]]);
+                                    importCount++;
+                                } else if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
+                                    const name = row[0] || ('Punto ' + (circuits[currentCircuit].length+1));
+                                    circuits[currentCircuit].push({ address: name, lat: parseFloat(row[1]), lng: parseFloat(row[2]) });
+                                    importCount++;
+                                } else if (row.length>=2 && !isNaN(parseFloat(row[0])) && !isNaN(parseFloat(row[1]))) {
+                                    circuits[currentCircuit].push({ address: ('Punto ' + (circuits[currentCircuit].length+1)), lat: parseFloat(row[0]), lng: parseFloat(row[1]) });
+                                    importCount++;
+                                } else if (row.length>=1 && typeof row[0] === 'string' && row[0].includes(',')) {
+                                    const addr = row[0].trim();
+                                    geocodeAddresses([addr]);
+                                    importCount++;
+                                }
+                            });
+                            if (importCount>0) {
+                                updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+                                showSuccess('✅ ' + importCount + ' ubicaciones importadas desde archivo XLSX.KML/KMZ');
+                            } else {
+                                showError('No se detectaron ubicaciones válidas en el archivo XLSX.KML/KMZ');
+                            }
+                        } catch (xlsxErr) {
+                            showError('Formato de archivo no soportado.');
+                        }
                     }
-                });
-                if (importCount>0) {
-                    updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
-                    showSuccess('✅ ' + importCount + ' ubicaciones importadas desde archivo XLSX.KML/KMZ');
-                } else {
-                    showError('No se detectaron coordenadas en el archivo XLSX.KML/KMZ');
                 }
             } catch (err) {
                 console.error(err);

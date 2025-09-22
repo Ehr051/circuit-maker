@@ -12,20 +12,30 @@ function initMap() {
 function showAddressesOnMap() {
     clearMarkers();
     
+
     circuits[currentCircuit].forEach((location, index) => {
-        const marker = L.marker([location.lat, location.lng])
+        const marker = L.marker([location.lat, location.lng], { draggable: true })
             .addTo(map)
             .bindPopup(`${index + 1}. ${location.address}`);
-        
+
         const icon = L.divIcon({
             html: `<div style="background: #667eea; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">${index + 1}</div>`,
             className: 'custom-marker',
             iconSize: [30, 30],
             iconAnchor: [15, 15]
         });
-        
         marker.setIcon(icon);
         markers.push(marker);
+
+        // Hacer el marcador editable/arrastrable
+        marker.on('dragend', function(e) {
+            const newLatLng = e.target.getLatLng();
+            location.lat = newLatLng.lat;
+            location.lng = newLatLng.lng;
+            updateAddressesList();
+            showAddressesOnMap();
+            showSuccess("📍 Punto actualizado manualmente en el mapa");
+        });
     });
 
     if (circuits[currentCircuit].length > 0) {
@@ -86,12 +96,3 @@ function clearMap() {
     }
 }
 
-const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-
-marker.on('dragend', function(e) {
-    const newLatLng = e.target.getLatLng();
-    location.lat = newLatLng.lat;
-    location.lng = newLatLng.lng;
-    updateAddressesList();
-    showSuccess("📍 Punto actualizado manualmente en el mapa");
-});
