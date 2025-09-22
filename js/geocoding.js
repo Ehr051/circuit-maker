@@ -4,13 +4,29 @@
 
 function cleanAddressInput(address) {
     if (!address) return '';
-    return address
-        .replace(/,\s*provincia de buenos aires/i, ', Buenos Aires')
-        .replace(/,\s*buenos aires\s*,/i, ', Buenos Aires,')
-        .replace(/\bgral\b/gi, 'General')
-        .replace(/\bav\b/gi, 'Avenida')
-        .replace(/\s+AR\s*$/i, '')
-        .trim();
+    let clean = address;
+    // Normalizar abreviaturas
+    clean = clean.replace(/\bAv\.?\b/gi, 'Avenida');
+    clean = clean.replace(/\bGral\.?\b/gi, 'General');
+    clean = clean.replace(/\bPcia\.?\b/gi, 'Provincia');
+    clean = clean.replace(/\bBs\.?\s*As\.?\b/gi, 'Buenos Aires');
+    clean = clean.replace(/,\s*provincia de buenos aires/i, ', Buenos Aires');
+    clean = clean.replace(/,\s*buenos aires\s*,/i, ', Buenos Aires,');
+    // Extraer y eliminar código postal
+    clean = clean.replace(/,?\s*CP\s*\d{4,}/i, '');
+    clean = clean.replace(/,?\s*\d{4,}\s*$/i, '');
+    // Extraer nombre de calle y altura si existen
+    const match = clean.match(/([^,\d]+)\s+(\d+)[,\s]*(.*)/);
+    if (match) {
+        // match[1]: nombre de calle, match[2]: altura, match[3]: resto (localidad, provincia)
+        clean = `${match[1].trim()} ${match[2].trim()}, ${match[3].trim()}`;
+    }
+    // Si falta localidad, agregar Buenos Aires por defecto
+    if (!/buenos aires|don torcuato|tigre|san isidro|vicente lópez|morón|quilmes|lanús|avellaneda|la plata|escobar|pilar|san miguel|lomas de zamora|berazategui|merlo|ituzaingó|ezeiza|almirante brown|san fernando|san martín|malvinas argentinas|hurlingham|moreno|caba|capital federal/i.test(clean)) {
+        clean += ', Buenos Aires';
+    }
+    clean = clean.replace(/\s+AR\s*$/i, '');
+    return clean.trim();
 }
 
 function buildNominatimParams(address) {
