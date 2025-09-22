@@ -1,7 +1,6 @@
 /* geocoding.js - geocodificación con Nominatim mejorada.
    Usa NOMINATIM_URL desde config.js (ej: https://nominatim.openstreetmap.org/search)
 */
-const NOMINATIM_URL = window.NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search';
 
 function cleanAddressInput(address) {
     if (!address) return '';

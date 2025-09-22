@@ -273,3 +273,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (kmlIn) kmlIn.addEventListener('change', handleKMLFileUpload);
     if (xlsxIn) xlsxIn.addEventListener('change', handleSpecialFileUpload);
 });
+
+const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+marker.on('dragend', function(e) {
+    const newLatLng = e.target.getLatLng();
+    location.lat = newLatLng.lat;
+    location.lng = newLatLng.lng;
+    updateAddressesList();
+    showSuccess("📍 Punto actualizado manualmente en el mapa");
+});
