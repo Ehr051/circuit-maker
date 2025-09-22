@@ -7,6 +7,56 @@ function loadFromCSV() { document.getElementById('csvFileInput').click(); }
 function loadFromKML() { document.getElementById('kmlFileInput').click(); }
 function loadFromXLSX() { document.getElementById('xlsxFileInput').click(); }
 
+// Nueva función para detectar doble extensión y procesar correctamente
+function handleSpecialFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    // Detecta doble extensión .xlsx.kml o .xlsx.kmz
+    if (name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
+        // Procesar como XLSX primero
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                let importCount = 0;
+                rows.forEach(row => {
+                    if (!row || row.length===0) return;
+                    // Procesa igual que XLSX normal
+                    if (row.length>=3 && !isNaN(parseFloat(row[1])) && !isNaN(parseFloat(row[2]))) {
+                        const name = row[0] || ('Punto ' + (circuits[currentCircuit].length+1));
+                        circuits[currentCircuit].push({ address: name, lat: parseFloat(row[1]), lng: parseFloat(row[2]) });
+                        importCount++;
+                    } else if (row.length>=2 && !isNaN(parseFloat(row[0])) && !isNaN(parseFloat(row[1]))) {
+                        circuits[currentCircuit].push({ address: ('Punto ' + (circuits[currentCircuit].length+1)), lat: parseFloat(row[0]), lng: parseFloat(row[1]) });
+                        importCount++;
+                    } else if (row.length>=1 && typeof row[0] === 'string' && row[0].includes(',')) {
+                        const addr = row[0].trim();
+                        pendingGeocodePush(addr);
+                        importCount++;
+                    }
+                });
+                if (importCount>0) {
+                    updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+                    showSuccess('✅ ' + importCount + ' ubicaciones importadas desde archivo XLSX.KML/KMZ');
+                } else {
+                    showError('No se detectaron coordenadas en el archivo XLSX.KML/KMZ');
+                }
+            } catch (err) {
+                console.error(err);
+                showError('Error procesando archivo XLSX.KML/KMZ: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    } else {
+        // Si no tiene doble extensión, delega al handler original
+        handleXLSXFileUpload(event);
+    }
+}
+
 function handleTextFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -221,5 +271,5 @@ document.addEventListener('DOMContentLoaded', function() {
     if (textIn) textIn.addEventListener('change', handleTextFileUpload);
     if (csvIn) csvIn.addEventListener('change', handleCSVFileUpload);
     if (kmlIn) kmlIn.addEventListener('change', handleKMLFileUpload);
-    if (xlsxIn) xlsxIn.addEventListener('change', handleXLSXFileUpload);
+    if (xlsxIn) xlsxIn.addEventListener('change', handleSpecialFileUpload);
 });
