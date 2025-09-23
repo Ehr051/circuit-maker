@@ -23,6 +23,7 @@ async function geocodeAddress(address) {
     const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
     try {
         const orsUrl = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}&boundary.country=AR&size=3`;
+        console.log('[Geocoding] ORS request:', orsUrl);
         const resp = await fetch(orsUrl);
         if (resp.ok) {
             const data = await resp.json();
@@ -30,46 +31,56 @@ async function geocodeAddress(address) {
                 for (const f of data.features) {
                     const props = f.properties;
                     if (props && props.name && props.housenumber) {
+                        console.log('[Geocoding] ORS resultado:', props.label, f.geometry.coordinates);
                         return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: props.label };
                     }
                 }
                 const f = data.features[0];
+                console.log('[Geocoding] ORS primer resultado:', f.properties.label, f.geometry.coordinates);
                 return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: f.properties.label };
             }
+        } else {
+            console.warn('[Geocoding] ORS response not ok:', resp.status);
         }
     } catch (err) {
-        console.error('Error ORS geocoding', err);
+        console.error('[Geocoding] Error ORS geocoding', err);
+        console.warn('[Geocoding] Forzando fallback a Nominatim por error ORS/CORS');
     }
     // 2. Fallback: Nominatim solo si ORS falla
     try {
-    const params = buildNominatimParams(address);
+        const params = buildNominatimParams(address);
         const url = `${NOMINATIM_URL}?${params}`;
         const headers = {
             'User-Agent': 'RouteOptimizer/1.0',
             'Accept': 'application/json'
         };
+        console.log('[Geocoding] Nominatim request:', url);
         const resp = await fetch(url, { headers });
         if (!resp.ok) {
-            console.warn('Nominatim response not ok', resp.status);
+            console.warn('[Geocoding] Nominatim response not ok', resp.status);
             return null;
         }
         const data = await resp.json();
         if (data && data.length > 0) {
             for (const d of data) {
                 if (d && d.address && d.address.house_number) {
+                    console.log('[Geocoding] Nominatim resultado:', d.display_name, d.lat, d.lon);
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
             for (const d of data) {
                 if (d && d.address && d.address.road && d.address.city) {
+                    console.log('[Geocoding] Nominatim resultado:', d.display_name, d.lat, d.lon);
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
+            console.log('[Geocoding] Nominatim primer resultado:', data[0].display_name, data[0].lat, data[0].lon);
             return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name };
         }
+        console.warn('[Geocoding] Nominatim sin resultados para', address);
         return null;
     } catch (err) {
-        console.error('Error Nominatim geocoding', err);
+        console.error('[Geocoding] Error Nominatim geocoding', err);
         return null;
     }
 }

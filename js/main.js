@@ -1,6 +1,32 @@
+// Test automático: carga direcciones de Don Torcuato y muestra en consola
+async function runAutoTest() {
+    const testAddresses = [
+        'Avenida María 1450, Don Torcuato',
+        'General Avalos 189, Don Torcuato',
+        'Av. del Trabajo 800, Don Torcuato',
+        'Av. Hipólito Yrigoyen 1200, Don Torcuato'
+    ];
+    circuits[currentCircuit] = [];
+    updateAddressesList(); updateCircuitTabs(); clearMap();
+    showLoading();
+    for (const addr of testAddresses) {
+        const res = await geocodeAddress(addr);
+        if (res) {
+            circuits[currentCircuit].push({ address: res.display_name, lat: res.lat, lng: res.lng });
+            console.log('Geocodificado:', res.display_name, res.lat, res.lng);
+        } else {
+            console.warn('No se pudo geocodificar:', addr);
+        }
+        await new Promise(r => setTimeout(r, 1100));
+    }
+    updateAddressesList(); updateCircuitTabs(); showAddressesOnMap();
+    hideLoading();
+    showSuccess('Test automático: direcciones cargadas. Ahora puedes optimizar la ruta.');
+}
 // Archivo principal de inicialización
 // Importación unificada de archivos
 async function handleUnifiedImport(event) {
+    console.log('[Import] Archivo seleccionado:', file.name);
     const file = event.target.files[0];
     if (!file) return;
     const name = file.name.toLowerCase();
@@ -13,8 +39,10 @@ async function handleUnifiedImport(event) {
         let geocodeList = [];
         // Detectar tipo de archivo por extensión
         if (name.endsWith('.csv') || name.endsWith('.txt')) {
+            console.log('[Import] Procesando como CSV/TXT');
             rows = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
         } else if (name.endsWith('.xlsx') || name.endsWith('.xlsx.csv')) {
+            console.log('[Import] Procesando como XLSX');
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
@@ -25,6 +53,7 @@ async function handleUnifiedImport(event) {
                 return;
             }
         } else if (name.endsWith('.kmz') || name.endsWith('.kml') || name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
+            console.log('[Import] Procesando como KML/KMZ');
             try {
                 let kmlText = text;
                 if (name.endsWith('.kmz') || name.endsWith('.xlsx.kmz')) {
@@ -59,12 +88,14 @@ async function handleUnifiedImport(event) {
                 return;
             }
         } else {
+            console.error('[Import] Formato de archivo no soportado:', name);
             showError('Formato de archivo no soportado.');
             return;
         }
 
         // Procesar filas (CSV/TXT/XLSX)
         for (let row of rows) {
+            console.log('[Import] Procesando fila:', row);
             let parts = Array.isArray(row) ? row : row.split(',');
             let lat = null, lng = null, schoolName = '', address = '';
             // Separar nombre y dirección si corresponde
@@ -89,6 +120,7 @@ async function handleUnifiedImport(event) {
         }
         // Geocodificar si es necesario
         if (geocodeList.length > 0) {
+            console.log('[Import] Geocodificando', geocodeList.length, 'direcciones...');
             await geocodeAddresses(geocodeList);
         }
         if (importCount > 0) {
@@ -112,17 +144,19 @@ document.addEventListener('DOMContentLoaded', function() {
     updateAddressesList();
     showAddressSuggestions();
     
-    // Event listeners
-    document.getElementById('addressInput').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            addAddress();
-        }
-    });
-
-    document.getElementById('textFileInput').addEventListener('change', handleTextFileUpload);
-    document.getElementById('csvFileInput').addEventListener('change', handleCSVFileUpload);
-    document.getElementById('kmlFileInput').addEventListener('change', handleKMLFileUpload);
-    
+    // Event listeners solo para inputs activos
+    const addressInput = document.getElementById('addressInput');
+    if (addressInput) {
+        addressInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addAddress();
+            }
+        });
+    }
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) {
+        fileInput.addEventListener('change', handleUnifiedImport);
+    }
     console.log('Aplicación inicializada correctamente');
 });
 
