@@ -44,8 +44,32 @@ function buildNominatimParams(address) {
 
 async function geocodeAddress(address) {
     if (!address) return null;
+    const clean = cleanAddressInput(address);
+    // 1. Intentar geocodificación con OpenRouteService
+    const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
     try {
-        const clean = cleanAddressInput(address);
+        const orsUrl = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(clean)}&boundary.country=AR&size=3`;
+        const resp = await fetch(orsUrl);
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data && data.features && data.features.length > 0) {
+                // Buscar coincidencia con altura si existe
+                for (const f of data.features) {
+                    const props = f.properties;
+                    if (props && props.name && props.housenumber) {
+                        return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: props.label };
+                    }
+                }
+                // Si no hay altura, usar el primer resultado
+                const f = data.features[0];
+                return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: f.properties.label };
+            }
+        }
+    } catch (err) {
+        console.error('Error ORS geocoding', err);
+    }
+    // 2. Fallback: Nominatim solo si ORS falla
+    try {
         const params = buildNominatimParams(clean);
         const url = `${NOMINATIM_URL}?${params}`;
         const headers = {
@@ -59,24 +83,21 @@ async function geocodeAddress(address) {
         }
         const data = await resp.json();
         if (data && data.length > 0) {
-            // preferimos coincidencias con altura exacta
             for (const d of data) {
                 if (d && d.address && d.address.house_number) {
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
-            // Si no hay altura, buscar coincidencia por calle y localidad
             for (const d of data) {
                 if (d && d.address && d.address.road && d.address.city) {
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
-            // fallback: primer resultado aunque no tenga altura
             return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name };
         }
         return null;
     } catch (err) {
-        console.error('Error geocoding', err);
+        console.error('Error Nominatim geocoding', err);
         return null;
     }
 }
