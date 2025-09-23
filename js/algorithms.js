@@ -141,10 +141,9 @@ async function optimizeRoute() {
         return;
     }
     showLoading(); hideError(); showSuccess('Calculando rutas...');
-    const algorithm = document.getElementById('algorithmSelect').value;
     let route = [];
     try {
-        // Nueva lógica: matriz de distancias reales con ORS
+        // Solo rutas reales por calles (ORS)
         const profile = document.getElementById('transportSelect').value || 'driving-car';
         // API key por defecto (no visible en HTML)
         const DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
@@ -172,8 +171,8 @@ async function optimizeRoute() {
                     if (real && real.distance) {
                         distMatrix[i][j] = real.distance;
                     } else {
-                        // fallback: distancia en línea recta
-                        distMatrix[i][j] = calculateDistance(addresses[i], addresses[j]) * getUrbanRoadFactor(addresses[i], addresses[j]);
+                        // fallback: penalizar mucho si no hay ruta real
+                        distMatrix[i][j] = 99999;
                     }
                 }
             }
@@ -185,7 +184,7 @@ async function optimizeRoute() {
         // guardar resultado
         optimizedRouteData = {
             route: route,
-            algorithm: document.getElementById('algorithmSelect').selectedOptions[0].text + ' (rutas reales)',
+            algorithm: 'Rutas por calles (ORS)',
             transport: document.getElementById('transportSelect').value,
             circuitName: currentCircuit,
             optimizationDate: new Date().toISOString()
