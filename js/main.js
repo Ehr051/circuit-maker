@@ -9,10 +9,12 @@ async function handleUnifiedImport(event) {
     reader.onload = async function(e) {
         let text = e.target.result;
         let rows = [];
-        // Detectar tipo de archivo
+        let importCount = 0;
+        let geocodeList = [];
+        // Detectar tipo de archivo por extensión
         if (name.endsWith('.csv') || name.endsWith('.txt')) {
             rows = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-        } else if (name.endsWith('.xlsx')) {
+        } else if (name.endsWith('.xlsx') || name.endsWith('.xlsx.csv')) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
@@ -22,27 +24,25 @@ async function handleUnifiedImport(event) {
                 showError('Error procesando archivo XLSX: ' + err.message);
                 return;
             }
-        } else if (name.endsWith('.kmz') || name.endsWith('.kml')) {
-            // Procesar KML/KMZ
+        } else if (name.endsWith('.kmz') || name.endsWith('.kml') || name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
             try {
-                if (name.endsWith('.kmz')) {
+                let kmlText = text;
+                if (name.endsWith('.kmz') || name.endsWith('.xlsx.kmz')) {
                     const zip = await JSZip.loadAsync(file);
                     const kmlFile = Object.keys(zip.files).find(f => f.toLowerCase().endsWith('.kml'));
                     if (!kmlFile) { showError('KMZ no contiene KML'); return; }
-                    text = await zip.files[kmlFile].async('string');
+                    kmlText = await zip.files[kmlFile].async('string');
                 }
-                // Procesar KML
                 const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(text, 'text/xml');
+                const xmlDoc = parser.parseFromString(kmlText, 'text/xml');
                 const placemarks = xmlDoc.getElementsByTagName('Placemark');
-                let importCount = 0;
                 Array.from(placemarks).forEach((placemark, idx) => {
-                    const name = placemark.getElementsByTagName('name')[0]?.textContent || ('Punto ' + (circuits[currentCircuit].length+1));
+                    const schoolName = placemark.getElementsByTagName('name')[0]?.textContent || ('Punto ' + (circuits[currentCircuit].length+1));
                     const coordsEl = placemark.getElementsByTagName('coordinates')[0];
                     if (coordsEl) {
                         const coords = coordsEl.textContent.trim().split(',');
                         if (coords.length >= 2) {
-                            circuits[currentCircuit].push({ address: name, lat: parseFloat(coords[1]), lng: parseFloat(coords[0]) });
+                            circuits[currentCircuit].push({ address: schoolName, lat: parseFloat(coords[1]), lng: parseFloat(coords[0]) });
                             importCount++;
                         }
                     }
@@ -64,26 +64,26 @@ async function handleUnifiedImport(event) {
         }
 
         // Procesar filas (CSV/TXT/XLSX)
-        let geocodeList = [];
-        let importCount = 0;
         for (let row of rows) {
             let parts = Array.isArray(row) ? row : row.split(',');
-            // Buscar coordenadas
-            let lat = null, lng = null, address = '';
-            for (let p of parts) {
-                if (/^-?\d{2,}\.\d+/.test(p)) {
-                    if (lat === null) lat = parseFloat(p);
-                    else if (lng === null) lng = parseFloat(p);
-                } else {
-                    address += (address ? ', ' : '') + p.trim();
-                }
+            let lat = null, lng = null, schoolName = '', address = '';
+            // Separar nombre y dirección si corresponde
+            if (parts.length === 2) {
+                schoolName = parts[0].trim();
+                address = parts[1].trim();
+            } else if (parts.length >= 3 && !isNaN(parseFloat(parts[parts.length-2])) && !isNaN(parseFloat(parts[parts.length-1]))) {
+                lat = parseFloat(parts[parts.length-2]);
+                lng = parseFloat(parts[parts.length-1]);
+                schoolName = parts.slice(0, parts.length-2).join(', ');
+            } else {
+                address = Array.isArray(row) ? row.join(', ') : row;
             }
             // Si hay coordenadas, usar directamente
             if (lat !== null && lng !== null) {
-                circuits[currentCircuit].push({ address, lat, lng });
+                circuits[currentCircuit].push({ address: schoolName || address, lat, lng });
                 importCount++;
             } else if (address) {
-                geocodeList.push(address);
+                geocodeList.push(schoolName ? `${schoolName}, ${address}` : address);
                 importCount++;
             }
         }
@@ -96,9 +96,9 @@ async function handleUnifiedImport(event) {
             showSuccess('✅ ' + importCount + ' ubicaciones importadas');
         }
     };
-    if (name.endsWith('.xlsx')) {
+    if (name.endsWith('.xlsx') || name.endsWith('.xlsx.csv') || name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
         reader.readAsArrayBuffer(file);
-    } else if (name.endsWith('.kmz')) {
+    } else if (name.endsWith('.kmz') || name.endsWith('.kml')) {
         reader.readAsArrayBuffer(file);
     } else {
         reader.readAsText(file);

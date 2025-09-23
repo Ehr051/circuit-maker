@@ -47,22 +47,7 @@
                         <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">� Importar Archivo</button>
                         <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.kml,.kmz" style="display: none;" onchange="handleUnifiedImport(event)">
                     
-                    <div class="input-group">
-                        <label>Importar desde Archivo:</label>
-                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                            <button class="btn btn-secondary" onclick="loadFromText()">📄 TXT/CSV</button>
-                            <button class="btn btn-secondary" onclick="loadFromCSV()">📊 CSV Coordenadas</button>
-                            <button class="btn btn-secondary" onclick="loadFromKML()">🗺️ KML/KMZ</button>
-                            <button class="btn btn-secondary" onclick="loadFromXLSX()">📑 XLSX</button>
-                            <button class="btn btn-secondary" onclick="document.getElementById('xlsxFileInput').click()">📑 XLSX.KML/KMZ</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Inputs de archivo ocultos -->
-                    <input type="file" id="textFileInput" accept=".txt,.csv" style="display: none;">
-                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
-                    <input type="file" id="kmlFileInput" accept=".kml,.kmz" style="display: none;">
-                    <input type="file" id="xlsxFileInput" accept=".xlsx" style="display: none;">
+                    <!-- Solo el input de importación unificada -->
                 </div>
 
                 <!-- Lista de Direcciones -->
