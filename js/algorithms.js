@@ -144,14 +144,48 @@ async function optimizeRoute() {
     const algorithm = document.getElementById('algorithmSelect').value;
     let route = [];
     try {
-        if (algorithm === 'nearestNeighbor') route = nearestNeighborTSP(addresses);
-        else if (algorithm === 'genetic') route = nearestNeighborTSP(addresses); // placeholder
-        else route = tspSolver(addresses);
+        // Nueva lógica: matriz de distancias reales con ORS
+        const profile = document.getElementById('transportSelect').value || 'driving-car';
+        // API key por defecto (no visible en HTML)
+        const DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
+        let apiKey = "";
+        const input = document.getElementById('orsApiKey');
+        if (input && input.value && input.value.trim()) {
+            apiKey = input.value.trim();
+        } else {
+            apiKey = DEFAULT_ORS_API_KEY;
+        }
+
+        // Construir matriz de distancias reales
+        let distMatrix = [];
+        let n = addresses.length;
+        for (let i = 0; i < n; i++) {
+            distMatrix[i] = [];
+            for (let j = 0; j < n; j++) {
+                if (i === j) {
+                    distMatrix[i][j] = 0;
+                } else {
+                    let real = null;
+                    if (apiKey) {
+                        real = await getRouteByStreets(addresses[i], addresses[j], profile);
+                    }
+                    if (real && real.distance) {
+                        distMatrix[i][j] = real.distance;
+                    } else {
+                        // fallback: distancia en línea recta
+                        distMatrix[i][j] = calculateDistance(addresses[i], addresses[j]) * getUrbanRoadFactor(addresses[i], addresses[j]);
+                    }
+                }
+            }
+        }
+
+        // Resolver TSP usando matriz de distancias reales
+        route = solveTSPWithMatrix(addresses, distMatrix);
 
         // guardar resultado
         optimizedRouteData = {
             route: route,
-            algorithm: document.getElementById('algorithmSelect').selectedOptions[0].text,
+            algorithm: document.getElementById('algorithmSelect').selectedOptions[0].text + ' (rutas reales)',
             transport: document.getElementById('transportSelect').value,
             circuitName: currentCircuit,
             optimizationDate: new Date().toISOString()
@@ -164,6 +198,62 @@ async function optimizeRoute() {
     } finally {
         hideLoading();
     }
+// TSP usando matriz de distancias (Nearest Neighbor + Two-Opt)
+function solveTSPWithMatrix(points, distMatrix) {
+    if (!points || points.length <= 1) return points.slice();
+    const n = points.length;
+    const used = new Array(n).fill(false);
+    let routeIdx = [0];
+    used[0] = true;
+    let currentIndex = 0;
+    for (let k = 1; k < n; k++) {
+        let best = -1, bestDist = Infinity;
+        for (let j = 0; j < n; j++) {
+            if (used[j]) continue;
+            const d = distMatrix[currentIndex][j];
+            if (d < bestDist) { bestDist = d; best = j; }
+        }
+        if (best >= 0) {
+            routeIdx.push(best);
+            used[best] = true;
+            currentIndex = best;
+        }
+    }
+    // Two-Opt sobre matriz
+    routeIdx = twoOptMatrix(routeIdx, distMatrix);
+    // Devolver puntos en orden
+    return routeIdx.map(i => points[i]);
+}
+
+function twoOptMatrix(routeIdx, distMatrix) {
+    let improved = true;
+    let bestRoute = routeIdx.slice();
+    let bestDist = totalDistMatrix(bestRoute, distMatrix);
+    while (improved) {
+        improved = false;
+        for (let i = 1; i < bestRoute.length - 1; i++) {
+            for (let j = i+1; j < bestRoute.length; j++) {
+                const newRoute = bestRoute.slice(0,i)
+                    .concat(bestRoute.slice(i,j+1).reverse(), bestRoute.slice(j+1));
+                const newDist = totalDistMatrix(newRoute, distMatrix);
+                if (newDist < bestDist) {
+                    bestRoute = newRoute;
+                    bestDist = newDist;
+                    improved = true;
+                }
+            }
+        }
+    }
+    return bestRoute;
+}
+
+function totalDistMatrix(routeIdx, distMatrix) {
+    let total = 0;
+    for (let i=0; i<routeIdx.length-1; i++) {
+        total += distMatrix[routeIdx[i]][routeIdx[i+1]];
+    }
+    return total;
+}
 }
 
 async function calculateRouteStats(route) {
