@@ -21,23 +21,31 @@ async function geocodeAddress(address) {
     if (!address) return null;
     // Usar la dirección tal cual aparece, sin limpiar ni normalizar
     const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImVkNmU1OGVmOGNjZjQ2M2JhNDc3ZGY4MTc4M2FlYzc2IiwiaCI6Im11cm11cjY0In0=";
+    let orsResult = null;
     try {
-        const orsUrl = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}&boundary.country=AR&size=3`;
+        const orsUrl = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}&boundary.country=AR&size=5`;
         console.log('[Geocoding] ORS request:', orsUrl);
         const resp = await fetch(orsUrl);
         if (resp.ok) {
             const data = await resp.json();
             if (data && data.features && data.features.length > 0) {
+                // Buscar el feature más preciso (con housenumber o street)
+                let best = null;
                 for (const f of data.features) {
                     const props = f.properties;
-                    if (props && props.name && props.housenumber) {
-                        console.log('[Geocoding] ORS resultado:', props.label, f.geometry.coordinates);
-                        return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: props.label };
+                    if (props && (props.housenumber || props.street)) {
+                        best = f;
+                        break;
                     }
                 }
-                const f = data.features[0];
-                console.log('[Geocoding] ORS primer resultado:', f.properties.label, f.geometry.coordinates);
-                return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], display_name: f.properties.label };
+                if (best) {
+                    console.log('[Geocoding] ORS resultado preciso:', best.properties.label, best.geometry.coordinates);
+                    orsResult = { lat: best.geometry.coordinates[1], lng: best.geometry.coordinates[0], display_name: best.properties.label };
+                } else {
+                    // Si solo hay localidad, loguear y no usar
+                    const f = data.features[0];
+                    console.warn('[Geocoding] ORS solo localidad:', f.properties.label, f.geometry.coordinates);
+                }
             }
         } else {
             console.warn('[Geocoding] ORS response not ok:', resp.status);
@@ -46,6 +54,8 @@ async function geocodeAddress(address) {
         console.error('[Geocoding] Error ORS geocoding', err);
         console.warn('[Geocoding] Forzando fallback a Nominatim por error ORS/CORS');
     }
+    // Si ORS no da resultado preciso, usar Nominatim
+    if (orsResult) return orsResult;
     // 2. Fallback: Nominatim solo si ORS falla
     try {
         const params = buildNominatimParams(address);
@@ -63,17 +73,12 @@ async function geocodeAddress(address) {
         const data = await resp.json();
         if (data && data.length > 0) {
             for (const d of data) {
-                if (d && d.address && d.address.house_number) {
-                    console.log('[Geocoding] Nominatim resultado:', d.display_name, d.lat, d.lon);
+                if (d && d.address && (d.address.house_number || d.address.road)) {
+                    console.log('[Geocoding] Nominatim resultado preciso:', d.display_name, d.lat, d.lon);
                     return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
                 }
             }
-            for (const d of data) {
-                if (d && d.address && d.address.road && d.address.city) {
-                    console.log('[Geocoding] Nominatim resultado:', d.display_name, d.lat, d.lon);
-                    return { lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name };
-                }
-            }
+            // Si no hay resultado preciso, usar el primero
             console.log('[Geocoding] Nominatim primer resultado:', data[0].display_name, data[0].lat, data[0].lon);
             return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name };
         }

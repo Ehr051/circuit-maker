@@ -1,5 +1,5 @@
 // Test automático: carga direcciones de Don Torcuato y muestra en consola
-async function runAutoTest() {
+window.runAutoTest = async function runAutoTest() {
     const testAddresses = [
         'Avenida María 1450, Don Torcuato',
         'General Avalos 189, Don Torcuato',
@@ -31,14 +31,16 @@ async function handleUnifiedImport(event) {
     if (!file) return;
     const name = file.name.toLowerCase();
     const reader = new FileReader();
-
     reader.onload = async function(e) {
-        let text = e.target.result;
         let rows = [];
         let importCount = 0;
         let geocodeList = [];
         // Detectar tipo de archivo por extensión
         if (name.endsWith('.csv') || name.endsWith('.txt')) {
+            let text = e.target.result;
+            if (typeof text !== 'string') {
+                try { text = new TextDecoder('utf-8').decode(text); } catch (err) { showError('No se pudo leer el archivo de texto.'); return; }
+            }
             console.log('[Import] Procesando como CSV/TXT');
             rows = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
         } else if (name.endsWith('.xlsx') || name.endsWith('.xlsx.csv')) {
@@ -55,7 +57,10 @@ async function handleUnifiedImport(event) {
         } else if (name.endsWith('.kmz') || name.endsWith('.kml') || name.endsWith('.xlsx.kml') || name.endsWith('.xlsx.kmz')) {
             console.log('[Import] Procesando como KML/KMZ');
             try {
-                let kmlText = text;
+                let kmlText = e.target.result;
+                if (typeof kmlText !== 'string') {
+                    try { kmlText = new TextDecoder('utf-8').decode(kmlText); } catch (err) { showError('No se pudo leer el archivo KML/KMZ.'); return; }
+                }
                 if (name.endsWith('.kmz') || name.endsWith('.xlsx.kmz')) {
                     const zip = await JSZip.loadAsync(file);
                     const kmlFile = Object.keys(zip.files).find(f => f.toLowerCase().endsWith('.kml'));
